@@ -4650,10 +4650,7 @@ class WatchBranches(GenericCommand):
             elif argv[1] == "all":
                 self.filter = [True, False, None]
 
-        if is_hex(argv[0]):
-            bpAdr = int(argv[0], 16)
-        else:
-            bpAdr = safe_parse_and_eval(argv[0])
+        bpAdr = parse_address(argv[0])
         
         pc = gef.arch.pc
         self.regs =  [reg.replace('$', '') for reg in gef.arch.all_registers]
@@ -4822,6 +4819,97 @@ class LibcCommand(GenericCommand):
         gef_print(f"Libc Version: {'.'.join(map(str, gef.libc.version))}")
         return
 
+
+@register
+class UserRegsStruct(GenericCommand):
+    """Displays an address value as a user_regs_struct struct."""
+
+    _cmdline_ = "user_regs_struct"
+    _syntax_ = f"{_cmdline_} ADDRESS [arch]"
+    _example_ = (f"{_cmdline_} $rsp+20"
+                 f"{_cmdline_} $esp X86",
+                 f"{_cmdline_} 0x00007fff0c698800 X86_64")
+
+    def __init__(self) -> None:
+        super().__init__()
+        return
+    
+    def do_invoke(self, argv: List[str]) -> None:
+        # Struct can be found at: https://sites.uclouvain.be/SystInfo/usr/include/sys/user.h.html
+        # x86 & x86_64 arch
+        if len(argv) not in (1, 2):
+            self.usage()
+            return
+        
+        targetAdr = parse_address(argv[0])
+
+        targetArch = None
+        if len(argv) == 2:
+            targetArch = argv[1]
+        
+        data: bytes = b""
+        regs = []
+        if is_x86_32() or targetArch == "X86":
+            data = gef.memory.read(targetAdr, 17*8)
+            regs = [
+                "ebx",
+                "ecx",
+                "edx",
+                "esi",
+                "edi",
+                "ebp",
+                "eax",
+                "xds",
+                "xes",
+                "xfs",
+                "xgs",
+                "orig_eax",
+                "eip",
+                "xcs",
+                "eflags",
+                "esp",
+                "xss",
+            ]
+
+        elif is_x86_64() or targetArch == "X86_64":
+            data = gef.memory.read(targetAdr, 27*8)
+            regs = [
+                "r15",
+                "r14",
+                "r13",
+                "r12",
+                "rbp",
+                "rbx",
+                "r11",
+                "r10",
+                "r9",
+                "r8",
+                "rax",
+                "rcx",
+                "rdx",
+                "rsi",
+                "rdi",
+                "orig_rax",
+                "rip",
+                "cs",
+                "eflags",
+                "rsp",
+                "ss",
+                "fs_base",
+                "gs_base",
+                "ds",
+                "es",
+                "fs",
+                "gs",
+            ]
+        
+        widest = l = max(map(len, regs))
+
+        for idx, reg in enumerate(regs):
+            padreg = reg.ljust(widest, " ")
+
+            gef_print(f"{Color.cyanify(padreg)} : 0x{data[8*idx:8*(idx+1)][::-1].hex()} (Offset {hex(8*idx)})")
+        return
 
 # End Custom Commands
 
