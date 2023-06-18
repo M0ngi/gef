@@ -11254,6 +11254,7 @@ class GefLibcManager(GefManager):
     """Class managing everything libc-related (except heap)."""
     def __init__(self) -> None:
         self._version : Optional[Tuple[int, int]] = None
+        self.__libc_base : Optional[int] = None
         return
 
     def __str__(self) -> str:
@@ -11266,6 +11267,12 @@ class GefLibcManager(GefManager):
         if not self._version:
             self._version = GefLibcManager.find_libc_version()
         return self._version
+    
+    @property
+    def base_address(self) -> Optional[int]:
+        if not self.__libc_base:
+            self.__libc_base = get_section_base_address("libc")
+        return self.__libc_base
 
     @staticmethod
     @lru_cache()
