@@ -4845,6 +4845,9 @@ class UserRegsStruct(GenericCommand):
 
         targetArch = None
         if len(argv) == 2:
+            if argv[1] not in ("X86", "X86_64"):
+                self.usage()
+                return
             targetArch = argv[1]
         
         data: bytes = b""
