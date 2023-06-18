@@ -7545,8 +7545,8 @@ class ContextCommand(GenericCommand):
 
         self.context_title("")
 
-        if self["clear_screen"] and len(argv) == 0:
-            clear_screen(redirect)
+        # if self["clear_screen"] and len(argv) == 0:
+        #     clear_screen(redirect)
 
         if redirect and os.access(redirect, os.W_OK):
             disable_redirect_output()
