@@ -4593,6 +4593,239 @@ class GenericCommand(gdb.Command):
         return
 
 
+# Custom Commands
+
+@register
+class ClearScreenCommand(GenericCommand):
+    """Clear the screen"""
+
+    _cmdline_ = "clear"
+    _syntax_ = f"{_cmdline_}"
+    _example_ = f"{_cmdline_}"
+
+    def __init__(self) -> None:
+        super().__init__()
+        return
+    
+    def do_invoke(self, _: List[str]) -> None:
+        clear_screen()
+        return
+
+
+@register
+class WatchBranches(GenericCommand):
+    """
+        Looks for call instructions with plt addresses.
+        Can be used for libc GOT overwrites.
+        Stops when it reachs the given address.
+    """
+
+    _cmdline_ = "branches"
+    _syntax_ = f"{_cmdline_} ADDRESS"
+    _example_ = (f"{_cmdline_} *main+54"
+                 f"{_cmdline_} $rip+20"
+                 f"{_cmdline_} 0xdeadbeef")
+
+    def __init__(self) -> None:
+        super().__init__(complete=gdb.COMPLETE_LOCATION)
+        return
+    
+    @only_if_gdb_running
+    def do_invoke(self, argv: List[str]) -> None:
+        if len(argv) not in (1,2):
+            self.usage()
+            return
+        
+        fpath = get_filepath()
+        if fpath is None:
+            warn("No executable to debug, use `file` to load a binary")
+            return
+        
+        self.filter = [True, None] # Writeable + unable to resolve
+        if len(argv) == 2:
+            if argv[1] in ['0', '1']:
+                self.filter = [bool(int(argv[1]))]
+            elif argv[1].lower() in ["true", "false"]:
+                self.filter = [argv[1].lower() == "true"]
+            elif argv[1] == "all":
+                self.filter = [True, False, None]
+
+        if is_hex(argv[0]):
+            bpAdr = int(argv[0], 16)
+        else:
+            bpAdr = safe_parse_and_eval(argv[0])
+        
+        pc = gef.arch.pc
+        self.regs =  [reg.replace('$', '') for reg in gef.arch.all_registers]
+        self.size2type = {
+            1: "BYTE",
+            2: "WORD",
+            4: "DWORD",
+            8: "QWORD",
+        }
+        self.prefix = "   " # display
+
+        if bpAdr == pc:
+            err(f"You're already at {pc:#x}!")
+            return
+
+        self.results = []
+        while pc != bpAdr:
+            inst = gef_get_instruction_at(pc)
+            
+            if inst.mnemonic == "bnd":
+                inst = gef_get_instruction_at(pc+1) # 1 byte to skip bnd
+            
+            if inst.mnemonic in ["call", "jmp"]:
+                self.results.append(self.resolveInstructionInfo(inst))
+
+            hide_context()
+            gdb.execute("si")
+            unhide_context()
+            pc = gef.arch.pc
+
+        self.displayResults()
+
+        return
+
+    def replaceRegisterNames(self, expression: str) -> str:
+        for reg in self.regs:
+            expression = expression.replace(reg, '$'+reg)
+        return expression
+    
+
+    def resolveInstructionInfo(self, inst: Instruction) -> Dict:
+        instInfo = {}
+
+        instInfo['inst'] = inst
+        operand = inst.operands[0]
+
+        if operand.startswith(self.size2type[gef.arch.ptrsize]+" PTR"):
+            instInfo['isPtr'] = True
+
+            if "# " in operand and " <" in operand:
+                target = operand.split('# ')[1].split(' <')[0]
+            else:
+                target = re.sub(r".*\[([a-z\d \+\*]*)\].*", r"\1", operand) # value inside []
+                target = self.replaceRegisterNames(target)
+                print(inst, target)
+                target = str(gdb.parse_and_eval(target))
+
+        else:
+            instInfo['isPtr'] = False
+
+            if "[" in operand:
+                # Call [rip+0x50]
+                target = re.sub(r".*\[([a-z\d \+\*]*)\].*", r"\1", operand) # value inside []
+            else:
+                # Call rdx
+                # Remove comments for gdb.parse_and_eval if there is any
+                if '#' in operand:
+                    target = operand.split('#')[0]
+                else:
+                    target = operand
+                
+                # Remove resolved symbols if there is any
+                if '<' in target:
+                    target = target.split('<')[0]
+                
+            target = self.replaceRegisterNames(target)
+            print(inst, target)
+            target = str(gdb.parse_and_eval(target))
+
+        try:
+            instInfo['adr'] = lookup_address(int(target, 16))
+        except ValueError:
+            instInfo['adr'] = False
+        
+        instInfo['state'] = gdb.execute("context legend regs stack", to_string=True)
+        return instInfo
+
+
+    def clearScreen(self):
+        clear_screen()
+        for _ in range(50): gef_print("")
+
+
+    def instToColoredText(self, inst: Instruction) -> str:
+        instText = f"{self.prefix}{Color.colorify(f'{inst.address:#x}', 'blue')}: " \
+                   f"{inst.mnemonic} " \
+                   f"{inst.operands[0]}"
+        return instText
+
+    def displayResults(self) -> None:
+        self.clearScreen()
+
+        self.tty_rows, self.tty_columns = get_terminal_size()
+        line_color = gef.config["theme.context_title_line"]
+        line = f"{Color.colorify(HORIZONTAL_LINE * (self.tty_columns-10), 'red')}"
+        endLine = f"{line[:len(line)//2]} END CALL {line[len(line)//2:]}\n\n"
+        
+        gef_print("Results:\n")
+        for result in self.results:
+            # state, inst, adr, isPtr
+            # calladr, adr, state
+            
+            writeable = None
+            if result['adr']:
+                if result['adr'].valid:
+                    if result['adr'].section.permission & Permission.WRITE:
+                        writeable = True
+                    else:
+                        writeable = False
+            
+            if writeable not in self.filter:
+                continue
+            
+
+            gef_print(result['state'])
+
+            gef_print("Branch executed:")
+            gef_print(self.instToColoredText(
+                result['inst']
+            ))
+
+            if result['adr'] == False:
+                gef_print(f"{self.prefix} {RIGHT_ARROW}{Color.colorify(f'Could not resolve target address.', 'red')}")
+                gef_print(endLine)
+                continue
+            
+            if writeable == True:
+                gef_print(f"{self.prefix} {RIGHT_ARROW}{result['adr'].value:#x} - {Color.colorify(f'Writeable', 'green')}")
+            
+            elif writeable == False:
+                gef_print(f"{self.prefix} {RIGHT_ARROW}{result['adr'].value:#x} - {Color.colorify(f'Not writeable', 'red')}")
+
+            else:
+                gef_print(f"{self.prefix} {RIGHT_ARROW}{result['adr'].value:#x} - {Color.colorify(f'Bad address used.', 'green')}")
+
+            gef_print(endLine)
+
+        gef_print(f"{len(self.results)} results found.")
+
+
+@register
+class LibcCommand(GenericCommand):
+    """Command to get libc version & base."""
+
+    _cmdline_ = "libc"
+    _syntax_ = f"{_cmdline_}"
+    _example_ = f"{_cmdline_}"
+
+    def __init__(self) -> None:
+        super().__init__()
+        return
+    
+    @only_if_gdb_running
+    def do_invoke(self, _: List[str]) -> None:
+        gef_print(f"Libc Base: {hex(gef.libc.base_address)}")
+        gef_print(f"Libc Version: {'.'.join(map(str, gef.libc.version))}")
+        return
+
+
+# End Custom Commands
+
+
 @register
 class VersionCommand(GenericCommand):
     """Display GEF version info."""
