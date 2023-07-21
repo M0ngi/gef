@@ -6310,40 +6310,93 @@ class RemoteCommand(GenericCommand):
 
 
 @register
-class NopCommand(GenericCommand):
-    """Patch the instruction(s) pointed by parameters with NOP. Note: this command is architecture
-    aware."""
+class SkipiCommand(GenericCommand):
+    """Skip N instruction(s) execution"""
 
-    _cmdline_ = "nop"
-    _syntax_  = ("{_cmdline_} [LOCATION] [--nb NUM_BYTES]"
-                 "\n\tLOCATION\taddress/symbol to patch"
-                 "\t--nb NUM_BYTES\tInstead of writing one instruction, patch the specified number of bytes")
-    _example_ = f"{_cmdline_} $pc"
+    _cmdline_ = "skipi"
+    _syntax_  = ("{_cmdline_} [LOCATION] [--n NUM_INSTRUCTIONS]"
+                "\n\tLOCATION\taddress/symbol from where to skip"
+                 "\t--n NUM_INSTRUCTIONS\tSkip the specified number of instructions instead of the default 1.")
+
+    _example_ = [f"{_cmdline_}",
+                 f"{_cmdline_} --n 3",
+                 f"{_cmdline_} 0x69696969",
+                 f"{_cmdline_} 0x69696969 --n 6",]
 
     def __init__(self) -> None:
         super().__init__(complete=gdb.COMPLETE_LOCATION)
         return
 
     @only_if_gdb_running
-    @parse_arguments({"address": "$pc"}, {"--nb": 0, })
+    @parse_arguments({"address": "$pc"}, {"--n": 1})
+    def do_invoke(self, _: List[str], **kwargs: Any) -> None:
+        args : argparse.Namespace = kwargs["arguments"]
+        address = parse_address(args.address)
+        num_instructions = args.n
+  
+        last_addr = gdb_get_nth_next_instruction_address(address, num_instructions)
+        total_bytes = (last_addr - address) + gef_get_instruction_at(last_addr).size()
+        target_addr  = address + total_bytes
+
+        info(f"skipping {num_instructions} instructions ({total_bytes} bytes) from {address:#x} to {target_addr:#x}")
+        gdb.execute(f"set $pc = {target_addr:#x}")
+        return
+        
+
+@register
+class NopCommand(GenericCommand):
+    """Patch the instruction(s) pointed by parameters with NOP. Note: this command is architecture
+    aware."""
+
+    _cmdline_ = "nop"
+    _syntax_  = ("{_cmdline_} [LOCATION] [--n NUM_ITEMS] [--b]"
+                 "\n\tLOCATION\taddress/symbol to patch"
+                 "\t--n NUM_ITEMS\tInstead of writing one instruction/nop, patch the specified number of instructions/nops (full instruction size by default)"
+                 "\t--b\tInstead of writing full instruction size, patch the specified number of nops")
+    _example_ = f"{_cmdline_} $pc"
+
+    _example_ = [f"{_cmdline_}",
+                 f"{_cmdline_} $pc+3",
+                 f"{_cmdline_} --n 2 $pc+3",
+                 f"{_cmdline_} --b",
+                 f"{_cmdline_} --b $pc+3",
+                 f"{_cmdline_} --b --n 2 $pc+3",]
+
+    def __init__(self) -> None:
+        super().__init__(complete=gdb.COMPLETE_LOCATION)
+        return
+
+    @only_if_gdb_running
+    @parse_arguments({"address": "$pc"}, {"--n": 0, "--b": False})
     def do_invoke(self, _: List[str], **kwargs: Any) -> None:
         args : argparse.Namespace = kwargs["arguments"]
         address = parse_address(args.address)
         nop = gef.arch.nop_insn
-        number_of_bytes = args.nb or 1
-        insn = gef_get_instruction_at(address)
+        num_items = args.n or 1
+        as_nops_flags = not args.b
 
-        if insn.size() != number_of_bytes:
-            warn(f"Patching {number_of_bytes} bytes at {address:#x} might result in corruption")
+        total_bytes = 0
+        if as_nops_flags:
+            total_bytes = num_items * len(nop)
+        else:
+            try:
+                last_addr = gdb_get_nth_next_instruction_address(address, num_items)
+            except:
+                err(f"Cannot patch instruction at {address:#x}: MAYBE reaching unmapped area")
+                return
+            total_bytes = (last_addr - address) + gef_get_instruction_at(last_addr).size()
 
-        nops = bytearray(nop * number_of_bytes)
-        end_address = Address(value=address + len(nops))
+        if total_bytes % len(nop):
+            warn(f"Patching {total_bytes} bytes at {address:#x} will result in a partially patched instruction and may break disassembly")
+
+        nops = bytearray(nop * (total_bytes // len(nop)))
+        end_address = Address(value=address + total_bytes - 1)
         if not end_address.valid:
             err(f"Cannot patch instruction at {address:#x}: reaching unmapped area")
             return
 
-        ok(f"Patching {len(nops)} bytes from {address:#x}")
-        gef.memory.write(address, nops, len(nops))
+        ok(f"Patching {total_bytes} bytes from {address:#x}")
+        gef.memory.write(address, nops, total_bytes)
         return
 
 
