@@ -1,6 +1,17 @@
-# Installing GEF
+## Installing GEF
 
 ## Prerequisites
+
+Specific GEF commands rely on commonly used Unix commands to extract additional information.
+Therefore it requires the following binaries to be present:
+
+*  `file`
+*  `readelf`
+*  `ps`
+*  `python3`
+
+Those tools are included by default in many modern distributions. If they're missing, you can use
+your OS package manager to install them.
 
 ### GDB
 
@@ -17,7 +28,7 @@ features, and only functional bugs will be handled.
 You can verify it with the following command:
 
 ```bash
-$ gdb -nx -ex 'pi print(sys.version)' -ex quit
+gdb -nx -ex 'pi print(sys.version)' -ex quit
 ```
 
 This should display your version of Python compiled with `gdb`.
@@ -34,10 +45,10 @@ There are **none**: `GEF` works out of the box!
 
 GEF itself provides most (if not all 🤯) features required for typical sessions. However, GEF can be
 easily extended via
-- community-built scripts, functions and architectures in the repo
-   `gef-extras` (see below)
-- your own script which can leverage the GEF API for the heavy lifting
 
+*  community-built scripts, functions and architectures in the repo
+   `gef-extras` (see below)
+*  your own script which can leverage the GEF API for the heavy lifting
 
 ## Standalone
 
@@ -52,6 +63,7 @@ bash -c "$(curl -fsSL https://gef.blah.cat/sh)"
 ```
 
 Or if you prefer `wget`
+
 ```bash
 bash -c "$(wget https://gef.blah.cat/sh -O -)"
 ```
@@ -71,7 +83,6 @@ $ cat ~/.gdbinit
 source ~/.gdbinit-gef.py
 ```
 
-
 ### Update
 
 If your host/VM is connected to the Internet, you can update `gef` easily to the latest version
@@ -90,22 +101,10 @@ updates are available, `gef` will respond `No update` instead.
 To contribute to GEF, you might prefer using git directly.
 
 ```bash
-$ git clone --branch dev https://github.com/hugsy/gef.git
-$ echo source `pwd`/gef/gef.py >> ~/.gdbinit
+git clone https://github.com/hugsy/gef.git
+echo source `pwd`/gef/gef.py >> ~/.gdbinit
 ```
 
-GEF is in very active development, so the default branch is `dev`. This is the
-branch you must use if you intend to submit pull requests.
-
-However if you prefer a more stable life, you can then switch to the `main`
-branch:
-
-```bash
-$ git checkout main
-```
-
-The `main` branch gets only updated for new releases, or also when critical
-fixes occur and need to be patched urgently.
 
 ## Community repository: GEF-Extras
 
@@ -114,6 +113,7 @@ GEF was built to also provide a solid base for external scripts. The repository
 anyone can freely submit their own commands to extend GDB via GEF's API.
 
 To benefit from it:
+
 ```bash
 # using the automated way
 ## via the install script
@@ -136,7 +136,6 @@ $ gdb -ex 'gef config pcustom.struct_path "/path/to/gef-extras/structs"' -ex 'ge
 ```
 
 There, you're now fully equipped epic pwnage with **all** GEF's goodness!!
-
 
 # Uninstalling GEF
 
@@ -162,6 +161,7 @@ source /my/path/to/gef.py
 ```
 
 Will become:
+
 ```text
 $ cat ~/.gdbinit
 # source /my/path/to/gef.py

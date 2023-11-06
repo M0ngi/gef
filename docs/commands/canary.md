@@ -5,7 +5,8 @@ If the currently debugged process was compiled with the Smash Stack Protector (S
 canary. This makes it convenient to avoid manually searching for this value in memory.
 
 The command `canary` does not take any arguments.
-```
+
+```text
 gef➤ canary
 ```
 

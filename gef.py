@@ -104,7 +104,7 @@ def http_get(url: str) -> Optional[bytes]:
 def update_gef(argv: List[str]) -> int:
     """Try to update `gef` to the latest version pushed on GitHub main branch.
     Return 0 on success, 1 on failure. """
-    ver = "dev" if "--dev" in argv else GEF_DEFAULT_BRANCH
+    ver = GEF_DEFAULT_BRANCH
     latest_gef_data = http_get(f"https://raw.githubusercontent.com/hugsy/gef/{ver}/scripts/gef.sh")
     if not latest_gef_data:
         print("[-] Failed to get remote gef")
@@ -1815,7 +1815,7 @@ def show_last_exception() -> None:
 
     try:
         lsb_release = which("lsb_release")
-        gdb.execute(f"!{lsb_release} -a")
+        gdb.execute(f"!'{lsb_release}' -a")
     except FileNotFoundError:
         gef_print("lsb_release is missing, cannot collect additional debug information")
 
@@ -1935,8 +1935,9 @@ class DisableContextOutputContext:
 
 
 class RedirectOutputContext:
-    def __init__(self, to: str = "/dev/null") -> None:
-        self.redirection_target_file = to
+    def __init__(self, to_file: str = "/dev/null") -> None:
+        if " " in to_file: raise ValueEror("Target filepath cannot contain spaces")
+        self.redirection_target_file = to_file
         return
 
     def __enter__(self) -> None:
@@ -1956,6 +1957,7 @@ class RedirectOutputContext:
 
 def enable_redirect_output(to_file: str = "/dev/null") -> None:
     """Redirect all GDB output to `to_file` parameter. By default, `to_file` redirects to `/dev/null`."""
+    if " " in to_file: raise ValueEror("Target filepath cannot contain spaces")
     gdb.execute("set logging overwrite")
     gdb.execute(f"set logging file {to_file}")
     gdb.execute("set logging redirect on")
@@ -3402,7 +3404,7 @@ def get_filepath() -> Optional[str]:
 
 def get_function_length(sym: str) -> int:
     """Attempt to get the length of the raw bytes of a function."""
-    dis = gdb.execute(f"disassemble {sym}", to_string=True).splitlines()
+    dis = gdb.execute(f"disassemble '{sym}'", to_string=True).splitlines()
     start_addr = int(dis[1].split()[0], 16)
     end_addr = int(dis[-2].split()[0], 16)
     return end_addr - start_addr
@@ -6311,16 +6313,16 @@ class RemoteCommand(GenericCommand):
 
         # qemu-user support
         qemu_binary: Optional[pathlib.Path] = None
-        try:
-            if args.qemu_user:
+        if args.qemu_user:
+            try:
                 qemu_binary = pathlib.Path(args.qemu_binary).expanduser().absolute() if args.qemu_binary else gef.session.file
                 if not qemu_binary or not qemu_binary.exists():
                     raise FileNotFoundError(f"{qemu_binary} does not exist")
-        except Exception as e:
-            err(f"Failed to initialize qemu-user mode, reason: {str(e)}")
-            return
+            except Exception as e:
+                err(f"Failed to initialize qemu-user mode, reason: {str(e)}")
+                return
 
-        # try to establish the remote session, throw on error
+        # Try to establish the remote session, throw on error
         # Set `.remote_initializing` to True here - `GefRemoteSessionManager` invokes code which
         # calls `is_remote_debug` which checks if `remote_initializing` is True or `.remote` is None
         # This prevents some spurious errors being thrown during startup
@@ -7096,11 +7098,9 @@ class DetailRegistersCommand(GenericCommand):
 
         args : argparse.Namespace = kwargs["arguments"]
         if args.registers and args.registers[0]:
-            requested_regs = set(args.registers)
-            valid_regs = set(gef.arch.all_registers) & requested_regs
-            if valid_regs:
-                regs = valid_regs
-            invalid_regs = requested_regs - valid_regs
+            all_regs = set(gef.arch.all_registers)
+            regs = [reg for reg in args.registers if reg in all_regs]
+            invalid_regs = [reg for reg in args.registers if reg not in all_regs]
             if invalid_regs:
                 err(f"invalid registers for architecture: {', '.join(invalid_regs)}")
 
@@ -7680,9 +7680,10 @@ class ContextCommand(GenericCommand):
         self.context_title("registers")
         ignored_registers = set(self["ignore_registers"].split())
 
+        # Defer to DetailRegisters by default
         if self["show_registers_raw"] is False:
-            regs = set(gef.arch.all_registers)
-            printable_registers = " ".join(regs - ignored_registers)
+            regs = [reg for reg in gef.arch.all_registers if reg not in ignored_registers]
+            printable_registers = " ".join(regs)
             gdb.execute(f"registers {printable_registers}")
             return
 
@@ -9111,7 +9112,7 @@ class TraceRunCommand(GenericCommand):
     def trace(self, loc_start: int, loc_end: int, depth: int) -> None:
         info(f"Tracing from {loc_start:#x} to {loc_end:#x} (max depth={depth:d})")
         logfile = f"{self['tracefile_prefix']}{loc_start:#x}-{loc_end:#x}.txt"
-        with RedirectOutputContext(to=logfile):
+        with RedirectOutputContext(to_file=logfile):
             hide_context()
             self.start_tracing(loc_start, loc_end, depth)
             unhide_context()
@@ -9509,7 +9510,7 @@ class FormatStringSearchCommand(GenericCommand):
 
         nb_installed_breaks = 0
 
-        with RedirectOutputContext(to="/dev/null"):
+        with RedirectOutputContext(to_file="/dev/null"):
             for function_name in dangerous_functions:
                 argument_number = dangerous_functions[function_name]
                 FormatStringBreakpoint(function_name, argument_number)
@@ -9814,9 +9815,11 @@ class GefCommand(gdb.Command):
         gef.config["gef.readline_compat"] = GefSetting(False, bool, "Workaround for readline SOH/ETX issue (SEGV)")
         gef.config["gef.debug"] = GefSetting(False, bool, "Enable debug mode for gef")
         gef.config["gef.autosave_breakpoints_file"] = GefSetting("", str, "Automatically save and restore breakpoints")
-        gef.config["gef.extra_plugins_dir"] = GefSetting("", str, "Autoload additional GEF commands from external directory", hooks={"on_write": self.load_extra_plugins})
+        plugins_dir = GefSetting("", str, "Autoload additional GEF commands from external directory", hooks={"on_write": GefSetting.no_spaces})
+        plugins_dir.add_hook("on_write", lambda _: self.load_extra_plugins())
+        gef.config["gef.extra_plugins_dir"] = plugins_dir
         gef.config["gef.disable_color"] = GefSetting(False, bool, "Disable all colors in GEF")
-        gef.config["gef.tempdir"] = GefSetting(GEF_TEMP_DIR, str, "Directory to use for temporary/cache content")
+        gef.config["gef.tempdir"] = GefSetting(GEF_TEMP_DIR, str, "Directory to use for temporary/cache content", hooks={"on_write": GefSetting.no_spaces})
         gef.config["gef.show_deprecation_warnings"] = GefSetting(True, bool, "Toggle the display of the `deprecated` warnings")
         gef.config["gef.buffer"] = GefSetting(True, bool, "Internally buffer command output until completion")
         gef.config["gef.bruteforce_main_arena"] = GefSetting(False, bool, "Allow bruteforcing main_arena symbol if everything else fails")
@@ -10132,14 +10135,22 @@ class GefConfigCommand(gdb.Command):
         _type = gef.config.raw_entry(key).type
         try:
             if _type == bool:
-                _newval = True if new_value.upper() in ("TRUE", "T", "1") else False
+                if new_value.upper() in ("TRUE", "T", "1"):
+                    _newval = True
+                elif new_value.upper() in ("FALSE", "F", "0"):
+                    _newval = False
+                else:
+                    raise ValueError(f"cannot parse '{new_value}' as bool")
             else:
                 _newval = new_value
-
-            gef.config[key] = _newval
         except Exception as e:
             err(f"'{key}' expects type '{_type.__name__}', got {type(new_value).__name__}: reason {str(e)}")
             return
+
+        try:
+            gef.config[key] = _newval
+        except Exception as e:
+            err(f"Cannot set '{key}': {e}")
 
         reset_all_caches()
         return
@@ -10469,8 +10480,8 @@ class GefTmuxSetup(gdb.Command):
         pane, pty = subprocess.check_output([tmux, "splitw", "-h", '-F#{session_name}:#{window_index}.#{pane_index}-#{pane_tty}', "-P"]).decode().strip().split("-")
         atexit.register(lambda : subprocess.run([tmux, "kill-pane", "-t", pane]))
         # clear the screen and let it wait for input forever
-        gdb.execute(f"! {tmux} send-keys -t {pane} 'clear ; cat' C-m")
-        gdb.execute(f"! {tmux} select-pane -L")
+        gdb.execute(f"!'{tmux}' send-keys -t {pane} 'clear ; cat' C-m")
+        gdb.execute(f"!'{tmux}' select-pane -L")
 
         ok(f"Setting `context.redirect` to '{pty}'...")
         gdb.execute(f"gef config context.redirect {pty}")
@@ -10493,7 +10504,7 @@ class GefTmuxSetup(gdb.Command):
             f.write(f"screen bash -c 'tty > {tty_path}; clear; cat'\n")
             f.write("focus left\n")
 
-        gdb.execute(f"! {screen} -r {sty} -m -d -X source {script_path}")
+        gdb.execute(f"!'{screen}' -r '{sty}' -m -d -X source {script_path}")
         # artificial delay to make sure `tty_path` is populated
         time.sleep(0.25)
         with open(tty_path, "r") as f:
@@ -10930,30 +10941,34 @@ class GefHeapManager(GefManager):
 
 class GefSetting:
     """Basic class for storing gef settings as objects"""
-    READ_ACCESS = 0
-    WRITE_ACCESS = 1
 
     def __init__(self, value: Any, cls: Optional[type] = None, description: Optional[str] = None, hooks: Optional[Dict[str, Callable]] = None)  -> None:
         self.value = value
         self.type = cls or type(value)
         self.description = description or ""
-        self.hooks: Tuple[List[Callable], List[Callable]] = ([], [])
-        if hooks:
-            for access, func in hooks.items():
-                if access == "on_read":
-                    idx = GefSetting.READ_ACCESS
-                elif access == "on_write":
-                    idx = GefSetting.WRITE_ACCESS
-                else:
-                    raise ValueError
-                if not callable(func):
-                    raise ValueError(f"hook is not callable")
-                self.hooks[idx].append(func)
+        self.hooks: Dict[str, List[Callable]] = collections.defaultdict(list)
+        if not hooks:
+            hooks = {}
+
+        for access, func in hooks.items():
+            self.add_hook(access, func)
         return
 
     def __str__(self) -> str:
-        return f"Setting(type={self.type.__name__}, value='{self.value}', desc='{self.description[:10]}...', "\
-            f"read_hooks={len(self.hooks[GefSetting.READ_ACCESS])}, write_hooks={len(self.hooks[GefSetting.READ_ACCESS])})"
+        return f"Setting(type={self.type.__name__}, value='{self.value}', desc='{self.description[:10]}...', " \
+                f"read_hooks={len(self.hooks['on_read'])}, write_hooks={len(self.hooks['on_write'])})"
+
+    def add_hook(self, access, func):
+        if access != "on_read" and access != "on_write":
+            raise ValueError("invalid access type")
+        if not callable(func):
+            raise ValueError("hook is not callable")
+        self.hooks[access].append(func)
+
+    @staticmethod
+    def no_spaces(value):
+        if " " in value:
+            raise ValueError("setting cannot contain spaces")
 
 
 class GefSettingsManager(dict):
@@ -10979,32 +10994,25 @@ class GefSettingsManager(dict):
             if not value.type: raise Exception("Invalid type")
             if not value.description: raise Exception("Invalid description")
             setting = value
+            value = setting.value
         super().__setitem__(name, setting)
-        self.__invoke_write_hooks(setting)
+        self.__invoke_write_hooks(setting, value)
         return
 
     def __delitem__(self, name: str) -> None:
-        super().__delitem__(name)
-        return
+        return super().__delitem__(name)
 
     def raw_entry(self, name: str) -> GefSetting:
         return super().__getitem__(name)
 
     def __invoke_read_hooks(self, setting: GefSetting) -> None:
-        self.__invoke_hooks(is_write=False, setting=setting)
+        for callback in setting.hooks["on_read"]:
+            callback()
         return
 
-    def __invoke_write_hooks(self, setting: GefSetting) -> None:
-        self.__invoke_hooks(is_write=True, setting=setting)
-        return
-
-    def __invoke_hooks(self, is_write: bool, setting: GefSetting) -> None:
-        if not setting.hooks:
-            return
-        idx = int(is_write)
-        if setting.hooks[idx]:
-            for callback in setting.hooks[idx]:
-                callback()
+    def __invoke_write_hooks(self, setting: GefSetting, value: Any) -> None:
+        for callback in setting.hooks["on_write"]:
+            callback(value)
         return
 
 
@@ -11227,7 +11235,7 @@ class GefRemoteSessionManager(GefSessionManager):
             return True
         tgt.parent.mkdir(parents=True, exist_ok=True)
         dbg(f"[remote] downloading '{src}' -> '{tgt}'")
-        gdb.execute(f"remote get {src} {tgt.absolute()}")
+        gdb.execute(f"remote get '{src}' '{tgt.absolute()}'")
         return tgt.exists()
 
     def connect(self, pid: int) -> bool:
@@ -11436,7 +11444,7 @@ class Gef:
         self.gdb.setup()
         tempdir = self.config["gef.tempdir"]
         gef_makedirs(tempdir)
-        gdb.execute(f"save gdb-index {tempdir}")
+        gdb.execute(f"save gdb-index '{tempdir}'")
         return
 
     def reset_caches(self) -> None:
@@ -11527,8 +11535,9 @@ if __name__ == "__main__":
 
     # `target remote` commands cannot be disabled, so print a warning message instead
     errmsg = "Using `target remote` with GEF does not work, use `gef-remote` instead. You've been warned."
-    gdb.execute(f"define target hook-remote\n pi if calling_function() != \"connect\": err(\"{errmsg}\") \nend")
-    gdb.execute(f"define target hook-extended-remote\n pi if calling_function() != \"connect\": err(\"{errmsg}\") \nend")
+    hook = f"""pi if calling_function() != "connect": err("{errmsg}")"""
+    gdb.execute(f"define target hook-remote\n{hook}\nend")
+    gdb.execute(f"define target hook-extended-remote\n{hook}\nend")
 
     # restore saved breakpoints (if any)
     bkp_fpath = pathlib.Path(gef.config["gef.autosave_breakpoints_file"]).expanduser().absolute()

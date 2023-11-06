@@ -7,7 +7,7 @@ the path taken by a specific execution. It should be used with the IDA script
 It will trace and store all values taken by `$pc` during the execution flow, from its current value,
 until the value provided as argument.
 
-```
+```text
 gef> trace-run <address_of_last_instruction_to_trace>
 ```
 
@@ -17,4 +17,3 @@ By using the script `ida_color_gdb_trace.py` on the text file generated, it will
 taken:
 
 ![trace-run-2](https://i.imgur.com/oAGoSMQ.png)
-

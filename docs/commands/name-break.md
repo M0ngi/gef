@@ -13,14 +13,14 @@ make it easier to keep an overview when using multiple breakpoints in a stripped
 
 Examples:
 
-- `nb first *0x400ec0`
-- `nb "main func" main`
-- `nb read_secret *main+149`
-- `nb check_heap`
+-  `nb first *0x400ec0`
+-  `nb "main func" main`
+-  `nb read_secret *main+149`
+-  `nb check_heap`
 
 Example output:
 
-```
+```text
 ─────────────────────────────────────────────────────────────────────────── code:x86:64 ────
      0x400e04                  add    eax, 0xfffbe6e8
      0x400e09                  dec    ecx
@@ -32,7 +32,7 @@ Example output:
      0x400e18                  mov    QWORD PTR [rbp-0x50], rsi
      0x400e1c                  mov    rax, QWORD PTR fs:0x28
 ───────────────────────────────────────────────────────────────────────────────── stack ────
-0x00007fffffffe288│+0x0000: 0x0000000000401117  →   movzx ecx, al	 ← $rsp
+0x00007fffffffe288│+0x0000: 0x0000000000401117  →   movzx ecx, al     ← $rsp
 0x00007fffffffe290│+0x0008: 0x00007fffffffe4b8  →  0x00007fffffffe71d  →  "/ctf/t19/srv_copy"
 0x00007fffffffe298│+0x0010: 0x0000000100000000
 0x00007fffffffe2a0│+0x0018: 0x0000000000000000
