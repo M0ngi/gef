@@ -3,17 +3,22 @@
 """
 
 
-from tests.utils import GefUnitTestGeneric, gdb_run_cmd
+from tests.base import RemoteGefUnitTestGeneric
 
 
-class EntryBreakCommand(GefUnitTestGeneric):
+class EntryBreakCommand(RemoteGefUnitTestGeneric):
     """`entry-break` command test module"""
 
-
     def test_cmd_entry_break(self):
-        res = gdb_run_cmd("entry-break")
-        self.assertNoException(res)
+        gdb = self._gdb
 
-        res = gdb_run_cmd("entry-break", after=("entry-break",))
-        self.assertNoException(res)
-        self.assertIn("gdb is already running", res)
+        # run once (ok)
+        lines = (gdb.execute("entry-break", to_string=True) or "").strip().splitlines()
+
+        # expect the entry point string pattern
+        assert len(lines) >= 2
+        assert any(line.startswith("[+] Breaking at entry-point") for line in lines)
+
+        # re-run while session running (nok)
+        res = (gdb.execute("entry-break", to_string=True) or "").strip()
+        assert "gdb is already running" in res
