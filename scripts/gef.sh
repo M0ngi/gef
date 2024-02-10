@@ -2,17 +2,9 @@
 
 set -e
 
-branch="main"
-curl_found=0
-wget_found=0
-
 # check dependencies
-if [ "$(which curl)" ]; then
-	curl_found=1
-elif [ "$(which wget)" ]; then
-	wget_found=1
-else
-	echo "Please install cURL or wget and run again"
+if [ ! "$(command -v python3)" ]; then
+	echo "GEF requires Python3 installed."
 	exit 1
 fi
 
@@ -21,21 +13,13 @@ if [ -f "${HOME}/.gdbinit" ]; then
     mv "${HOME}/.gdbinit" "${HOME}/.gdbinit.old"
 fi
 
-if [ $wget_found -eq 1 ]; then
-    # Get the hash of the commit
-    ref=$(wget -q -O- https://api.github.com/repos/hugsy/gef/git/ref/heads/${branch} | grep '"sha"' | tr -s ' ' | cut -d ' ' -f 3 | tr -d "," | tr -d '"')
+tag=$(python3 -c 'import urllib.request as r,json as j; x=j.loads(r.urlopen("https://api.github.com/repos/hugsy/gef/tags").read()); print(x[0]["name"])')
+python3 -c "import urllib.request as r; x=r.urlopen('https://github.com/hugsy/gef/raw/${tag}/gef.py').read(); print(x.decode('utf-8'))" > ${HOME}/.gef-${tag}.py
 
-    # Download the file
-    wget -q "https://github.com/hugsy/gef/raw/${branch}/gef.py" -O "${HOME}/.gef-${ref}.py"
-elif [ $curl_found -eq 1 ]; then
-    # Get the hash of the commit
-    ref=$(curl --silent https://api.github.com/repos/hugsy/gef/git/ref/heads/${branch} | grep '"sha"' | tr -s ' ' | cut -d ' ' -f 3 | tr -d "," | tr -d '"')
-
-    # Download the file
-    curl --silent --location --output "${HOME}/.gef-${ref}.py" "https://github.com/hugsy/gef/raw/${branch}/gef.py"
+if [ -f "${HOME}/.gef-${tag}.py" ]; then
+    echo "source ~/.gef-${tag}.py" > ~/.gdbinit
+    exit 0
+else
+    echo "GEF was not properly downloaded"
+    exit 2
 fi
-
-# Create the new gdbinit
-echo "source ~/.gef-${ref}.py" > ~/.gdbinit
-
-exit 0

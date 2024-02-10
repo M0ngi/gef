@@ -30,6 +30,14 @@ gef➤ gef config gef.bruteforce_main_arena True
 Note that this might take a few seconds to complete. If GEF does find the symbol you can then
 calculate the offset to the libc base address and save it in the config.
 
+Sometimes, the dump might not contain proper info to help GEF find the libc version, which results in
+failure to parse the arena information. In this case, you can try to provide GEF a specific libc
+version to use with the following command:
+
+```text
+gef➤ gef config gef.libc_version 2.31
+```
+
 ### `heap chunks` command
 
 Displays all the chunks from the `heap` section of the current arena.
@@ -61,6 +69,45 @@ Because usually the heap chunks are aligned to a certain number of bytes in memo
 re-aligns the chunks data start addresses to match Glibc's behavior. To be able to view unaligned
 chunks as well, you can disable this with the `--allow-unaligned` flag. Note that this might result
 in incorrect output.
+
+To get a higher level overview of the chunks you can use the `--summary` flag too.
+
+```text
+gef➤ heap chunks --summary
+```
+
+![heap-chunks-summary](https://i.imgur.com/3HTgtwX.png)
+
+Sometimes, multiple types of objects could have the same size, hence it might not be enough only
+knowing the chunk size when debugging issues like memory leaks. GEF supports using the vtable to
+determine the type of the object stored in the chunk. To enable this feature, use `--resolve` along
+with the `--summary` flag.
+
+```text
+gef➤ heap chunks --summary --resolve
+```
+
+![heap-chunks-summary-resolve](https://i.imgur.com/2Mm0JF6.png)
+
+Heap chunk command also supports filtering chunks by their size. To do so, simply provide the
+`--min-size` or `--max-size` argument:
+
+```text
+gef➤ heap chunks --min-size 16 --max-size 32
+```
+
+![heap-chunks-size-filter](https://i.imgur.com/AWuCvFK.png)
+
+The range is inclusive, so the above command will display all chunks with size >=16 and <=32.
+
+If heap chunks command still gives too many chunks, we can use `--count` argument to limit the number
+of the chunks in the output:
+
+```text
+gef➤ heap chunks --count 1
+```
+
+![heap-chunks-size-filter](https://i.imgur.com/EinuDAt.png)
 
 ### `heap chunk` command
 

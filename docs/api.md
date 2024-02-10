@@ -101,11 +101,12 @@ near the bottom of the context. The order can be modified in the `GEF` context c
 ### Context Pane API
 
 The API demonstrated above requires very specific argument types:
-`register_external_context_pane(pane_name, display_pane_function, pane_title_function)`
+`register_external_context_pane(pane_name, display_pane_function, pane_title_function, condition=None)`
 
 *  `pane_name`: a string that will be used as the panes setting name
 *  `display_pane_function`: a function that uses `gef_print()` to print content in the pane
 *  `pane_title_function`: a function that returns the title string or None to hide the title
+*  `condition` (optional): a function that returns whether this context pane should be shown
 
 ## API
 
@@ -199,7 +200,7 @@ A basic example would be as follow:
 class MyCommand(GenericCommand):
     [...]
 
-    @parse_arguments({"foo": [1,]}, {"--bleh": "", ("--blah", "-l): True})
+    @parse_arguments({"foo": [1,]}, {"--bleh": "", ("--blah", "-l): False})
     def do_invoke(self, argv, *args, **kwargs):
       args = kwargs["arguments"]
       if args.foo == 1: ...
@@ -215,9 +216,9 @@ gef➤ mycommand --blah 3 14 159 2653
 The function `MyCommand!do_invoke()` can use the command line argument value
 
 ```python
-args.foo --> [3, 14, 159, 2653] # a List(int) from user input
-args.bleh --> "" # the default value
-args.blah --> True # set to True because user input declared the option (would have been False otherwise)
+args.foo == [3, 14, 159, 2653] # a List(int) from user input
+args.bleh == "" # the default value
+args.blah == True # set to True because user input declared the option (would have been False otherwise)
 ```
 
 ### Adding new architectures
