@@ -4709,6 +4709,106 @@ class ClearScreenCommand(GenericCommand):
 
 
 @register
+class PointerSearchCommand(GenericCommand):
+    """Search a memory zone for a pointer"""
+
+    _cmdline_ = "find_ptrs"
+    _syntax_ = (
+        f"{_cmdline_} START END TYPE TARGET\n"
+        "  TYPE:\n"
+        "    - address/adr/a\n"
+        "    - object/obj/o\n"
+    )
+    _example_ = (
+        f"{_cmdline_} *main+54  *main+980 a 0xdeadcafe"
+        f"{_cmdline_} *main+54  *main+980 address 0xdeadcafe"
+        f"{_cmdline_} 0xdeadbeef 0xcafebabe o stack"
+        f"{_cmdline_} 0xdeadbeef 0xcafebabe object libc"
+    )
+    ALLOWED_TYPES = ('a', 'address', 'adr', 'o', 'obj', 'object')
+    
+    class TARGET_TYPES(enum.Enum):
+        ADDRESS = 0
+        OBJECT = 1
+    
+    class Candidate:
+        def __init__(self, pointer: int, address: int, offset: int) -> None:
+            self.pointer = pointer
+            self.address = address
+            self.offset = offset
+        
+        def __str__(self) -> str:
+            return f"{Color.blueify(format_address(self.address))}|{self.offset:x}: {format_address(self.pointer)}"
+    
+    def __init__(self) -> None:
+        super().__init__()
+        return
+    
+    def do_invoke(self, argv: List[str]) -> None:
+        if len(argv) not in (4,):
+            self.usage()
+            return
+        
+        if not is_alive():
+            warn("No debugging session active")
+            return
+        
+        start_adr = parse_address(argv[0])
+        end_adr = parse_address(argv[1])
+        target_type = argv[2]
+        if target_type not in self.ALLOWED_TYPES:
+            warn(f"Bad target type: {self.ALLOWED_TYPES}")
+            return
+        
+        if target_type in ('a', 'adr', 'address'):
+            target = parse_address(argv[3])
+            check_func = self.is_success_adr
+        else:
+            target = argv[3]
+            check_func = self.is_success_obj
+        
+        if start_adr == end_adr:
+            warn("Start can't be equal to end!")
+            return
+        
+        if start_adr > end_adr:
+            start_adr, end_adr = end_adr, start_adr
+        
+        buff = gef.memory.read(start_adr, end_adr-start_adr)
+        
+        ptrsize = gef.arch.ptrsize
+        candidates: list[PointerSearchCommand.Candidate] = []
+        for i in range(len(buff) - ptrsize + 1):
+            ptr = int('0x'+buff[i:i+ptrsize][::-1].hex(), 16)
+            if check_func(ptr, target):
+                candidates.append(
+                    PointerSearchCommand.Candidate(
+                        ptr,
+                        start_adr + i,
+                        i,
+                    )
+                )
+        
+        gef_print("-"*20)
+        gef_print("\n".join(map(str, candidates)))
+        gef_print(f"{len(candidates)} results found.")
+        return
+
+    def is_success_adr(self, ptr: int, target: int):
+        return ptr == target
+    
+    def is_success_obj(self, ptr: int, target: str):
+        if ptr == 0:
+            return False
+        
+        section = process_lookup_address(ptr)
+        if section is None:
+            return False
+        
+        return target in section.path
+
+
+@register
 class WatchBranches(GenericCommand):
     """
         Looks for call instructions with plt addresses.
