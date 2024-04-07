@@ -4863,7 +4863,7 @@ class WatchBranches(GenericCommand):
             return
 
         self.results = []
-        while pc != bpAdr:
+        while is_alive() and pc != bpAdr:
             inst = gef_get_instruction_at(pc)
             
             if inst.mnemonic == "bnd":
@@ -11112,6 +11112,7 @@ class GefHeapManager(GefManager):
                 # by default, `main_arena` == `selected_arena`
                 self.selected_arena = self.__libc_main_arena
             except:
+                GefHeapManager.find_main_arena_addr.cache_clear()
                 # the search for arena can fail when the session is not started
                 pass
         return self.__libc_main_arena
