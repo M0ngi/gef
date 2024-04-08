@@ -4692,6 +4692,47 @@ class GenericCommand(gdb.Command):
 # Custom Commands
 
 @register
+class GotCommand(GenericCommand):
+    """Display address of link_map list."""
+
+    _cmdline_ = "link_map"
+    _syntax_ = f"{_cmdline_} [print]"
+    _example_ = "link_map print"
+
+    @only_if_gdb_running
+    def do_invoke(self, argv: List[str]) -> None:
+        readelf = gef.session.constants["readelf"]
+
+        elf_file = str(gef.session.file)
+        elf_virtual_path = str(gef.session.file)
+
+        vmmap = gef.memory.maps
+        base_address = min(x.page_start for x in vmmap if x.path == elf_virtual_path)
+
+        # get the checksec output.
+        checksec_status = Elf(elf_file).checksec
+        pie = checksec_status["PIE"]  # if pie we will have offset instead of abs address.
+
+        # retrieve jump slots using readelf
+        lines = gef_execute_external([readelf, "--relocs", elf_file], as_list=True)
+        jmpslots = [line for line in lines if "JUMP" in line]
+
+        address = jmpslots[0].split()[0]
+        address_val = int(address, 16) - 16
+
+        # address_val is an offset from the base_address if we have PIE.
+        if pie or is_remote_debug():
+            address_val = base_address + address_val
+        
+        link_map_ptr = gef.memory.read_integer(address_val)
+        gef_print("link_map list pointer:")
+        
+        line = f"[{hex(address_val)}] "
+        line += Color.colorify(f"{RIGHT_ARROW} {hex(link_map_ptr)}", "green")
+        gef_print(line)
+            
+
+@register
 class ClearScreenCommand(GenericCommand):
     """Clear the screen"""
 
