@@ -4850,6 +4850,27 @@ class PointerSearchCommand(GenericCommand):
 
 
 @register
+class SetArch(GenericCommand):
+    """
+        Sets selected architecture incase it cannot
+        be automatically found.
+    """
+    ARCHS = ['\t - ' + str(x)+'\n' for x in __registered_architectures__.keys()]
+    _cmdline_ = "set_arch"
+    _syntax_ = (f"{_cmdline_} arch\n"
+                f"Supports archs:\n"
+                f"{''.join(ARCHS)}"
+                )
+    
+    @only_if_gdb_running
+    def do_invoke(self, argv: List[str]) -> None:
+        if len(argv) not in (1,):
+            self.usage()
+            return
+        
+        reset_architecture(argv[0])
+
+@register
 class WatchBranches(GenericCommand):
     """
         Looks for call instructions with plt addresses.
